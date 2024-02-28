@@ -1,0 +1,15 @@
+[package]
+name = "xed"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+arrayvec = "0.7.4"
+thiserror-no-std = "2.0.2"
+xed-sys2 = { path = "../xed-sys2" }
+
+[features]
+std = ["thiserror-no-std/std"]
+
