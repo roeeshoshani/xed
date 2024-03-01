@@ -1,7 +1,5 @@
 use core::{ffi::CStr, ptr::NonNull, sync::atomic::AtomicBool};
 
-mod enums;
-
 use arrayvec::ArrayVec;
 use thiserror_no_std::Error;
 use xed_sys2::{
