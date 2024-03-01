@@ -3,9 +3,12 @@ use core::{ffi::CStr, ptr::NonNull, sync::atomic::AtomicBool};
 use arrayvec::ArrayVec;
 use thiserror_no_std::Error;
 use xed_sys2::{
-    xed_absbr, xed_convert_to_encoder_request, xed_decode, xed_decoded_inst_get_category,
-    xed_decoded_inst_get_extension, xed_decoded_inst_get_iclass, xed_decoded_inst_get_length,
-    xed_decoded_inst_get_modrm, xed_decoded_inst_get_operand_width, xed_decoded_inst_inst,
+    xed_absbr, xed_convert_to_encoder_request, xed_decode, xed_decoded_inst_get_base_reg,
+    xed_decoded_inst_get_category, xed_decoded_inst_get_extension, xed_decoded_inst_get_iclass,
+    xed_decoded_inst_get_index_reg, xed_decoded_inst_get_length,
+    xed_decoded_inst_get_memory_displacement, xed_decoded_inst_get_memory_displacement_width_bits,
+    xed_decoded_inst_get_modrm, xed_decoded_inst_get_operand_width, xed_decoded_inst_get_reg,
+    xed_decoded_inst_get_scale, xed_decoded_inst_get_seg_reg, xed_decoded_inst_inst,
     xed_decoded_inst_noperands, xed_decoded_inst_operand_action,
     xed_decoded_inst_operand_element_size_bits, xed_decoded_inst_operand_element_type,
     xed_decoded_inst_operand_elements, xed_decoded_inst_operand_length_bits, xed_decoded_inst_t,
@@ -14,11 +17,12 @@ use xed_sys2::{
     xed_encoder_request_zero_set_mode, xed_error_enum_t, xed_error_enum_t2str, xed_imm0, xed_inst,
     xed_inst_operand, xed_inst_t, xed_mem_b, xed_mem_bd, xed_mem_bisd, xed_mem_gb, xed_mem_gbd,
     xed_mem_gbisd, xed_operand_is_register, xed_operand_name, xed_operand_operand_visibility,
-    xed_operand_t, xed_operand_type, xed_operand_width, xed_operand_xtype, xed_ptr, xed_reg,
-    xed_register_abort_function, xed_relbr, xed_simm0, xed_state_get_address_width,
-    xed_state_get_machine_mode, xed_state_get_stack_address_width, xed_state_init2,
-    xed_state_set_stack_address_width, xed_state_t, xed_state_zero, xed_tables_init,
-    XED_ENCODE_ORDER_MAX_OPERANDS,
+    xed_operand_reg, xed_operand_t, xed_operand_type,
+    xed_operand_values_get_effective_operand_width, xed_operand_width, xed_operand_width_bits,
+    xed_operand_xtype, xed_ptr, xed_reg, xed_register_abort_function, xed_relbr, xed_simm0,
+    xed_state_get_address_width, xed_state_get_machine_mode, xed_state_get_stack_address_width,
+    xed_state_init2, xed_state_set_stack_address_width, xed_state_t, xed_state_zero,
+    xed_tables_init, XED_ENCODE_ORDER_MAX_OPERANDS,
 };
 
 pub use xed_sys2::XED_MAX_INSTRUCTION_BYTES;
@@ -105,7 +109,75 @@ impl XedState {
         unsafe { xed_state_get_machine_mode(&self.raw) }
     }
 
-    pub fn decode(&self, buf: &[u8]) -> Result<XedDecodedInsn> {
+    pub fn decode(&self, buf: &[u8]) -> Result<Insn> {
+        let mut decoded = unsafe { core::mem::zeroed::<xed_decoded_inst_t>() };
+        unsafe { xed_decoded_inst_zero_set_mode(&mut decoded, &self.raw) }
+        check_xed_result(unsafe {
+            xed_decode(&mut decoded, buf.as_ptr().cast(), buf.len() as u32)
+        })?;
+        let is_valid = unsafe { xed_decoded_inst_valid(&decoded) };
+        if is_valid == 0 {
+            return Err(Error::DecodedInsnIsInvalid);
+        }
+        let mut operands = Operands::new();
+        let num_of_operands = unsafe { xed_decoded_inst_noperands(&decoded) };
+        let inst = unsafe { xed_decoded_inst_inst(&decoded) };
+        let mut cur_mem_operands = 0;
+        for op_idx in 0..num_of_operands {
+            let operand = unsafe { xed_inst_operand(inst, op_idx) };
+            let vis = unsafe { xed_operand_operand_visibility(operand) };
+            if vis != XedOperandVisibility::XED_OPVIS_EXPLICIT {
+                continue;
+            }
+            let name = unsafe { xed_operand_name(operand) };
+            if unsafe { xed_operand_is_register(name) } != 0 {
+                operands.push(Operand::Reg(unsafe {
+                    xed_decoded_inst_get_reg(&decoded, name)
+                }))
+            } else if name == XedOperandName::XED_OPERAND_MEM0
+                || name == XedOperandName::XED_OPERAND_MEM1
+                || name == XedOperandName::XED_OPERAND_AGEN
+            {
+                operands.push(Operand::Mem(MemOperand {
+                    base: unsafe { xed_decoded_inst_get_base_reg(&decoded, cur_mem_operands) },
+                    width_in_bits: unsafe {
+                        xed_decoded_inst_operand_length_bits(&decoded, op_idx)
+                    },
+                    seg: opt_reg(unsafe { xed_decoded_inst_get_seg_reg(&decoded, op_idx) }),
+                    sib: opt_reg(unsafe {
+                        xed_decoded_inst_get_index_reg(&decoded, cur_mem_operands)
+                    })
+                    .map(|index_reg| MemOperandSib {
+                        scale: unsafe { xed_decoded_inst_get_scale(&decoded, cur_mem_operands) },
+                        index: index_reg,
+                    }),
+                    displacement: Some(MemOperandDisplacement {
+                        displacement: unsafe {
+                            xed_decoded_inst_get_memory_displacement(&decoded, cur_mem_operands)
+                        },
+                        width_in_bits: unsafe {
+                            xed_decoded_inst_get_memory_displacement_width_bits(
+                                &decoded,
+                                cur_mem_operands,
+                            )
+                        },
+                    }),
+                }));
+                cur_mem_operands += 1;
+            } else {
+                todo!()
+            }
+        }
+        Ok(Insn {
+            iclass: unsafe { xed_decoded_inst_get_iclass(&decoded) },
+            effective_operand_width_in_bits: unsafe {
+                xed_decoded_inst_get_operand_width(&decoded)
+            },
+            operands,
+        })
+    }
+
+    pub fn decode_ll(&self, buf: &[u8]) -> Result<XedDecodedInsn> {
         let mut result = XedDecodedInsn {
             raw: unsafe { core::mem::zeroed() },
         };
@@ -235,6 +307,14 @@ impl XedState {
                 },
             },
         }
+    }
+}
+
+fn opt_reg(reg: Reg) -> Option<Reg> {
+    if reg == Reg::XED_REG_INVALID {
+        None
+    } else {
+        Some(reg)
     }
 }
 
@@ -413,12 +493,14 @@ pub struct RawXedError {
 
 pub type Operands = ArrayVec<Operand, MAX_OPERANDS>;
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Insn {
     pub iclass: XedInsnIClass,
     pub effective_operand_width_in_bits: u32,
     pub operands: Operands,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Operand {
     BranchDisp(BranchDisp),
     PtrDisp(PtrDisp),
@@ -427,27 +509,32 @@ pub enum Operand {
     Mem(MemOperand),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BranchDisp {
     pub is_relative: bool,
     pub disp: i32,
     pub width_in_bits: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PtrDisp {
     pub disp: i32,
     pub width_in_bits: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ImmOperand {
     pub value: ImmValue,
     pub width_in_bits: u32,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ImmValue {
     Signed(i32),
     Unsigned(u64),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MemOperand {
     pub base: Reg,
     pub width_in_bits: u32,
@@ -456,11 +543,13 @@ pub struct MemOperand {
     pub displacement: Option<MemOperandDisplacement>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MemOperandSib {
     pub scale: u32,
     pub index: Reg,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MemOperandDisplacement {
     pub displacement: i64,
     pub width_in_bits: u32,
