@@ -10,14 +10,15 @@ use xed_sys2::{
     xed_decoded_inst_operand_element_size_bits, xed_decoded_inst_operand_element_type,
     xed_decoded_inst_operand_elements, xed_decoded_inst_operand_length_bits, xed_decoded_inst_t,
     xed_decoded_inst_valid, xed_decoded_inst_zero_set_mode, xed_disp, xed_encode,
-    xed_encoder_instruction_t, xed_encoder_operand_t, xed_encoder_request_t, xed_error_enum_t,
-    xed_error_enum_t2str, xed_imm0, xed_inst, xed_inst_operand, xed_inst_t, xed_mem_b, xed_mem_bd,
-    xed_mem_bisd, xed_mem_gb, xed_mem_gbd, xed_mem_gbisd, xed_operand_is_register,
-    xed_operand_name, xed_operand_operand_visibility, xed_operand_t, xed_operand_type,
-    xed_operand_width, xed_operand_xtype, xed_ptr, xed_reg, xed_register_abort_function, xed_relbr,
-    xed_simm0, xed_state_get_address_width, xed_state_get_machine_mode,
-    xed_state_get_stack_address_width, xed_state_init2, xed_state_set_stack_address_width,
-    xed_state_t, xed_state_zero, xed_tables_init, XED_ENCODE_ORDER_MAX_OPERANDS,
+    xed_encoder_instruction_t, xed_encoder_operand_t, xed_encoder_request_t,
+    xed_encoder_request_zero_set_mode, xed_error_enum_t, xed_error_enum_t2str, xed_imm0, xed_inst,
+    xed_inst_operand, xed_inst_t, xed_mem_b, xed_mem_bd, xed_mem_bisd, xed_mem_gb, xed_mem_gbd,
+    xed_mem_gbisd, xed_operand_is_register, xed_operand_name, xed_operand_operand_visibility,
+    xed_operand_t, xed_operand_type, xed_operand_width, xed_operand_xtype, xed_ptr, xed_reg,
+    xed_register_abort_function, xed_relbr, xed_simm0, xed_state_get_address_width,
+    xed_state_get_machine_mode, xed_state_get_stack_address_width, xed_state_init2,
+    xed_state_set_stack_address_width, xed_state_t, xed_state_zero, xed_tables_init,
+    XED_ENCODE_ORDER_MAX_OPERANDS,
 };
 
 pub use xed_sys2::XED_MAX_INSTRUCTION_BYTES;
@@ -140,6 +141,7 @@ impl XedState {
             )
         }
         let mut req = unsafe { core::mem::zeroed::<xed_encoder_request_t>() };
+        unsafe { xed_encoder_request_zero_set_mode(&mut req, &encoder_inst.mode) }
         let convert_result = unsafe { xed_convert_to_encoder_request(&mut req, &mut encoder_inst) };
         if convert_result == 0 {
             return Err(Error::FailedToInsnToEncReq);
@@ -150,7 +152,7 @@ impl XedState {
             xed_encode(
                 &mut req,
                 insn_bytes.as_mut_ptr(),
-                insn_bytes.len() as u32,
+                XED_MAX_INSTRUCTION_BYTES,
                 &mut encoded_len,
             )
         })?;

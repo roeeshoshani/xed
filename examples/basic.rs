@@ -1,11 +1,55 @@
 use std::process::Command;
 
 use arrayvec::ArrayVec;
-use xed::{Insn, Operand, Reg, XedAddressWidth, XedInsnIClass, XedMachineMode, XedState};
+use xed::{
+    Insn, Operand, Reg, XedAddressWidth, XedInsnIClass, XedMachineMode, XedState, MAX_INSN_BYTES,
+};
 
 fn main() {
     // decode_test()
-    encode_test();
+    encode_test()
+    // raw_encode_test()
+}
+
+fn raw_bytes<'a, T: Sized>(value: &'a T) -> &'a [u8] {
+    unsafe {
+        core::slice::from_raw_parts(value as *const T as *const u8, core::mem::size_of::<T>())
+    }
+}
+
+fn raw_encode_test() {
+    let operands = unsafe {
+        [
+            xed_sys2::xed_reg(Reg::XED_REG_RAX),
+            xed_sys2::xed_reg(Reg::XED_REG_RDI),
+        ]
+    };
+    unsafe { xed_sys2::xed_tables_init() };
+    let mut insn = unsafe { core::mem::zeroed::<xed_sys2::xed_encoder_instruction_t>() };
+    let state = xed_sys2::xed_state_t {
+        mmode: XedMachineMode::XED_MACHINE_MODE_LONG_64,
+        stack_addr_width: XedAddressWidth::XED_ADDRESS_WIDTH_64b,
+    };
+    unsafe {
+        xed_sys2::xed_inst(
+            &mut insn,
+            state,
+            XedInsnIClass::XED_ICLASS_XOR,
+            64,
+            operands.len() as u32,
+            operands.as_ptr(),
+        )
+    }
+    let mut req = unsafe { core::mem::zeroed::<xed_sys2::xed_encoder_request_t>() };
+    unsafe { xed_sys2::xed_encoder_request_zero_set_mode(&mut req, &insn.mode) };
+    let convert_result = unsafe { xed_sys2::xed_convert_to_encoder_request(&mut req, &mut insn) };
+    assert_ne!(convert_result, 0);
+    let mut buf = [0u8; MAX_INSN_BYTES];
+    let mut enc_len = 0;
+    let encode_res =
+        unsafe { xed_sys2::xed_encode(&mut req, buf.as_mut_ptr(), buf.len() as u32, &mut enc_len) };
+    dbg!(encode_res);
+    dbg!(&buf[..enc_len as usize]);
 }
 
 fn encode_test() {
