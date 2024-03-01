@@ -5,11 +5,13 @@ use thiserror_no_std::Error;
 use xed_sys2::{
     xed_absbr, xed_convert_to_encoder_request, xed_decode, xed_decoded_inst_get_base_reg,
     xed_decoded_inst_get_category, xed_decoded_inst_get_extension, xed_decoded_inst_get_iclass,
+    xed_decoded_inst_get_immediate_is_signed, xed_decoded_inst_get_immediate_width_bits,
     xed_decoded_inst_get_index_reg, xed_decoded_inst_get_length,
     xed_decoded_inst_get_memory_displacement, xed_decoded_inst_get_memory_displacement_width_bits,
     xed_decoded_inst_get_modrm, xed_decoded_inst_get_operand_width, xed_decoded_inst_get_reg,
-    xed_decoded_inst_get_scale, xed_decoded_inst_get_seg_reg, xed_decoded_inst_inst,
-    xed_decoded_inst_noperands, xed_decoded_inst_operand_action,
+    xed_decoded_inst_get_scale, xed_decoded_inst_get_seg_reg,
+    xed_decoded_inst_get_signed_immediate, xed_decoded_inst_get_unsigned_immediate,
+    xed_decoded_inst_inst, xed_decoded_inst_noperands, xed_decoded_inst_operand_action,
     xed_decoded_inst_operand_element_size_bits, xed_decoded_inst_operand_element_type,
     xed_decoded_inst_operand_elements, xed_decoded_inst_operand_length_bits, xed_decoded_inst_t,
     xed_decoded_inst_valid, xed_decoded_inst_zero_set_mode, xed_disp, xed_encode,
@@ -164,6 +166,20 @@ impl XedState {
                     }),
                 }));
                 cur_mem_operands += 1;
+            } else if name == XedOperandName::XED_OPERAND_IMM0
+                || name == XedOperandName::XED_OPERAND_IMM0SIGNED
+            {
+                let is_signed = unsafe { xed_decoded_inst_get_immediate_is_signed(&decoded) };
+                operands.push(Operand::Imm(ImmOperand {
+                    value: if is_signed != 0 {
+                        ImmValue::Signed(unsafe { xed_decoded_inst_get_signed_immediate(&decoded) })
+                    } else {
+                        ImmValue::Unsigned(unsafe {
+                            xed_decoded_inst_get_unsigned_immediate(&decoded)
+                        })
+                    },
+                    width_in_bits: unsafe { xed_decoded_inst_get_immediate_width_bits(&decoded) },
+                }))
             } else {
                 todo!()
             }
