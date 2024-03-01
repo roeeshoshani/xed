@@ -61,7 +61,7 @@ fn encode_test() {
             operands: [
                 Operand::Reg(Reg::XED_REG_RAX),
                 Operand::Mem(MemOperand {
-                    base: Reg::XED_REG_RDI,
+                    base: Some(Reg::XED_REG_RDI),
                     width_in_bits: 64,
                     seg: None,
                     sib: Some(MemOperandSib {

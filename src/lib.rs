@@ -4,6 +4,7 @@ use arrayvec::ArrayVec;
 use thiserror_no_std::Error;
 use xed_sys2::{
     xed_absbr, xed_convert_to_encoder_request, xed_decode, xed_decoded_inst_get_base_reg,
+    xed_decoded_inst_get_branch_displacement, xed_decoded_inst_get_branch_displacement_width_bits,
     xed_decoded_inst_get_category, xed_decoded_inst_get_extension, xed_decoded_inst_get_iclass,
     xed_decoded_inst_get_immediate_is_signed, xed_decoded_inst_get_immediate_width_bits,
     xed_decoded_inst_get_index_reg, xed_decoded_inst_get_length,
@@ -141,12 +142,14 @@ impl XedState {
                 || name == XedOperandName::XED_OPERAND_AGEN
             {
                 operands.push(Operand::Mem(MemOperand {
-                    base: unsafe { xed_decoded_inst_get_base_reg(&decoded, cur_mem_operands) },
+                    base: reg_to_opt(unsafe {
+                        xed_decoded_inst_get_base_reg(&decoded, cur_mem_operands)
+                    }),
                     width_in_bits: unsafe {
                         xed_decoded_inst_operand_length_bits(&decoded, op_idx)
                     },
-                    seg: opt_reg(unsafe { xed_decoded_inst_get_seg_reg(&decoded, op_idx) }),
-                    sib: opt_reg(unsafe {
+                    seg: reg_to_opt(unsafe { xed_decoded_inst_get_seg_reg(&decoded, op_idx) }),
+                    sib: reg_to_opt(unsafe {
                         xed_decoded_inst_get_index_reg(&decoded, cur_mem_operands)
                     })
                     .map(|index_reg| MemOperandSib {
@@ -180,8 +183,26 @@ impl XedState {
                     },
                     width_in_bits: unsafe { xed_decoded_inst_get_immediate_width_bits(&decoded) },
                 }))
+            } else if name == XedOperandName::XED_OPERAND_RELBR {
+                let disp = unsafe { xed_decoded_inst_get_branch_displacement(&decoded) };
+                let width =
+                    unsafe { xed_decoded_inst_get_branch_displacement_width_bits(&decoded) };
+                operands.push(Operand::BranchDisp(BranchDisp {
+                    is_relative: true,
+                    disp: disp as i32,
+                    width_in_bits: width,
+                }));
+            } else if name == XedOperandName::XED_OPERAND_ABSBR {
+                let disp = unsafe { xed_decoded_inst_get_branch_displacement(&decoded) };
+                let width =
+                    unsafe { xed_decoded_inst_get_branch_displacement_width_bits(&decoded) };
+                operands.push(Operand::BranchDisp(BranchDisp {
+                    is_relative: false,
+                    disp: disp as i32,
+                    width_in_bits: width,
+                }));
             } else {
-                todo!()
+                return Err(Error::UnsupportedOperandNameDuringDecode(name));
             }
         }
         Ok(Insn {
@@ -266,10 +287,10 @@ impl XedState {
                 },
             },
             Operand::Mem(mem) => match (mem.seg, &mem.displacement, &mem.sib) {
-                (None, None, None) => unsafe { xed_mem_b(mem.base, mem.width_in_bits) },
+                (None, None, None) => unsafe { xed_mem_b(opt_to_reg(mem.base), mem.width_in_bits) },
                 (None, None, Some(sib)) => unsafe {
                     xed_mem_bisd(
-                        mem.base,
+                        opt_to_reg(mem.base),
                         sib.index,
                         sib.scale,
                         xed_disp(0, 8),
@@ -278,25 +299,27 @@ impl XedState {
                 },
                 (None, Some(displacement), None) => unsafe {
                     xed_mem_bd(
-                        mem.base,
+                        opt_to_reg(mem.base),
                         xed_disp(displacement.displacement, displacement.width_in_bits),
                         mem.width_in_bits,
                     )
                 },
                 (None, Some(displacement), Some(sib)) => unsafe {
                     xed_mem_bisd(
-                        mem.base,
+                        opt_to_reg(mem.base),
                         sib.index,
                         sib.scale,
                         xed_disp(displacement.displacement, displacement.width_in_bits),
                         mem.width_in_bits,
                     )
                 },
-                (Some(seg), None, None) => unsafe { xed_mem_gb(seg, mem.base, mem.width_in_bits) },
+                (Some(seg), None, None) => unsafe {
+                    xed_mem_gb(seg, opt_to_reg(mem.base), mem.width_in_bits)
+                },
                 (Some(seg), None, Some(sib)) => unsafe {
                     xed_mem_gbisd(
                         seg,
-                        mem.base,
+                        opt_to_reg(mem.base),
                         sib.index,
                         sib.scale,
                         xed_disp(0, 8),
@@ -306,7 +329,7 @@ impl XedState {
                 (Some(seg), Some(displacement), None) => unsafe {
                     xed_mem_gbd(
                         seg,
-                        mem.base,
+                        opt_to_reg(mem.base),
                         xed_disp(displacement.displacement, displacement.width_in_bits),
                         mem.width_in_bits,
                     )
@@ -314,7 +337,7 @@ impl XedState {
                 (Some(seg), Some(displacement), Some(sib)) => unsafe {
                     xed_mem_gbisd(
                         seg,
-                        mem.base,
+                        opt_to_reg(mem.base),
                         sib.index,
                         sib.scale,
                         xed_disp(displacement.displacement, displacement.width_in_bits),
@@ -326,12 +349,16 @@ impl XedState {
     }
 }
 
-fn opt_reg(reg: Reg) -> Option<Reg> {
+fn reg_to_opt(reg: Reg) -> Option<Reg> {
     if reg == Reg::XED_REG_INVALID {
         None
     } else {
         Some(reg)
     }
+}
+
+fn opt_to_reg(opt: Option<Reg>) -> Reg {
+    opt.unwrap_or(Reg::XED_REG_INVALID)
 }
 
 pub type InsnBytes = ArrayVec<u8, MAX_INSN_BYTES>;
@@ -498,6 +525,9 @@ pub enum Error {
 
     #[error("failed to convert instruction to encoder request")]
     FailedToInsnToEncReq,
+
+    #[error("unsupported raw operand name {0:?} while decoding an instruction")]
+    UnsupportedOperandNameDuringDecode(XedOperandName),
 }
 
 #[derive(Debug, Error)]
@@ -552,7 +582,7 @@ pub enum ImmValue {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MemOperand {
-    pub base: Reg,
+    pub base: Option<Reg>,
     pub width_in_bits: u32,
     pub seg: Option<Reg>,
     pub sib: Option<MemOperandSib>,
