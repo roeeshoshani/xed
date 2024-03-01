@@ -2,19 +2,14 @@ use std::process::Command;
 
 use arrayvec::ArrayVec;
 use xed::{
-    Insn, Operand, Reg, XedAddressWidth, XedInsnIClass, XedMachineMode, XedState, MAX_INSN_BYTES,
+    ImmOperand, ImmValue, Insn, MemOperand, MemOperandDisplacement, MemOperandSib, Operand, Reg,
+    XedAddressWidth, XedInsnIClass, XedMachineMode, XedState, MAX_INSN_BYTES,
 };
 
 fn main() {
     // decode_test()
     encode_test()
     // raw_encode_test()
-}
-
-fn raw_bytes<'a, T: Sized>(value: &'a T) -> &'a [u8] {
-    unsafe {
-        core::slice::from_raw_parts(value as *const T as *const u8, core::mem::size_of::<T>())
-    }
 }
 
 fn raw_encode_test() {
@@ -58,17 +53,40 @@ fn encode_test() {
         XedAddressWidth::XED_ADDRESS_WIDTH_64b,
         XedAddressWidth::XED_ADDRESS_WIDTH_64b,
     );
-    let result = xed_state.encode(&Insn {
-        iclass: XedInsnIClass::XED_ICLASS_MOV,
-        effective_operand_width_in_bits: 64,
-        operands: [
-            Operand::Reg(Reg::XED_REG_RAX),
-            Operand::Reg(Reg::XED_REG_RDI),
-        ]
-        .into_iter()
-        .collect(),
-    });
-    println!("{:?}", result);
+    let result = xed_state
+        .encode(&Insn {
+            iclass: XedInsnIClass::XED_ICLASS_ADD,
+            effective_operand_width_in_bits: 64,
+            operands: [
+                Operand::Reg(Reg::XED_REG_RAX),
+                Operand::Mem(MemOperand {
+                    base: Reg::XED_REG_RDI,
+                    width_in_bits: 64,
+                    seg: None,
+                    sib: Some(MemOperandSib {
+                        scale: 8,
+                        index: Reg::XED_REG_RSI,
+                    }),
+                    displacement: Some(MemOperandDisplacement {
+                        displacement: -5,
+                        width_in_bits: 32,
+                    }),
+                }),
+            ]
+            .into_iter()
+            .collect(),
+        })
+        .unwrap();
+    let output_file_path = "/tmp/.xed_enc_test";
+    std::fs::write(output_file_path, result.as_slice()).unwrap();
+    let exit_code = Command::new("objdump")
+        .args("-Mintel -D -b binary -Mx86-64 -mi386:x86-64".split(' '))
+        .arg(output_file_path)
+        .spawn()
+        .unwrap()
+        .wait()
+        .unwrap();
+    assert!(exit_code.success());
 }
 
 fn decode_test() {
