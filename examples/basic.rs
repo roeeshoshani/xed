@@ -8,8 +8,8 @@ use xed::{
 
 fn main() {
     // decode_ll_test()
-    decode_test()
-    // encode_test()
+    // decode_test()
+    encode_test()
     // raw_encode_test()
 }
 
@@ -54,30 +54,26 @@ fn encode_test() {
         XedAddressWidth::XED_ADDRESS_WIDTH_64b,
         XedAddressWidth::XED_ADDRESS_WIDTH_64b,
     );
-    let result = xed_state
-        .encode(&Insn {
-            iclass: XedInsnIClass::XED_ICLASS_ADD,
-            effective_operand_width_in_bits: 64,
-            operands: [
-                Operand::Reg(Reg::XED_REG_RAX),
-                Operand::Mem(MemOperand {
-                    base: Some(Reg::XED_REG_RDI),
-                    width_in_bits: 64,
-                    seg: None,
-                    sib: Some(MemOperandSib {
-                        scale: 8,
-                        index: Reg::XED_REG_RSI,
-                    }),
-                    displacement: Some(MemOperandDisplacement {
-                        displacement: -5,
-                        width_in_bits: 32,
-                    }),
+    let insn = Insn {
+        iclass: XedInsnIClass::XED_ICLASS_ADD,
+        effective_operand_width_in_bits: 64,
+        operands: [
+            Operand::Reg(Reg::XED_REG_RAX),
+            Operand::Mem(MemOperand {
+                base: None,
+                width_in_bits: 64,
+                seg: None,
+                sib: None,
+                displacement: Some(MemOperandDisplacement {
+                    displacement: -5,
+                    width_in_bits: 32,
                 }),
-            ]
-            .into_iter()
-            .collect(),
-        })
-        .unwrap();
+            }),
+        ]
+        .into_iter()
+        .collect(),
+    };
+    let result = xed_state.encode(&insn).unwrap();
     let output_file_path = "/tmp/.xed_enc_test";
     std::fs::write(output_file_path, result.as_slice()).unwrap();
     let exit_code = Command::new("objdump")
@@ -88,6 +84,8 @@ fn encode_test() {
         .wait()
         .unwrap();
     assert!(exit_code.success());
+    let decoded = xed_state.decode(&result).unwrap();
+    assert_eq!(decoded, insn);
 }
 
 fn decode_ll_test() {

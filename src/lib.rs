@@ -286,64 +286,20 @@ impl XedState {
                     xed_imm0(unsigned_imm, imm.width_in_bits)
                 },
             },
-            Operand::Mem(mem) => match (mem.seg, &mem.displacement, &mem.sib) {
-                (None, None, None) => unsafe { xed_mem_b(opt_to_reg(mem.base), mem.width_in_bits) },
-                (None, None, Some(sib)) => unsafe {
-                    xed_mem_bisd(
-                        opt_to_reg(mem.base),
-                        sib.index,
-                        sib.scale,
-                        xed_disp(0, 8),
-                        mem.width_in_bits,
-                    )
-                },
-                (None, Some(displacement), None) => unsafe {
-                    xed_mem_bd(
-                        opt_to_reg(mem.base),
-                        xed_disp(displacement.displacement, displacement.width_in_bits),
-                        mem.width_in_bits,
-                    )
-                },
-                (None, Some(displacement), Some(sib)) => unsafe {
-                    xed_mem_bisd(
-                        opt_to_reg(mem.base),
-                        sib.index,
-                        sib.scale,
-                        xed_disp(displacement.displacement, displacement.width_in_bits),
-                        mem.width_in_bits,
-                    )
-                },
-                (Some(seg), None, None) => unsafe {
-                    xed_mem_gb(seg, opt_to_reg(mem.base), mem.width_in_bits)
-                },
-                (Some(seg), None, Some(sib)) => unsafe {
-                    xed_mem_gbisd(
-                        seg,
-                        opt_to_reg(mem.base),
-                        sib.index,
-                        sib.scale,
-                        xed_disp(0, 8),
-                        mem.width_in_bits,
-                    )
-                },
-                (Some(seg), Some(displacement), None) => unsafe {
-                    xed_mem_gbd(
-                        seg,
-                        opt_to_reg(mem.base),
-                        xed_disp(displacement.displacement, displacement.width_in_bits),
-                        mem.width_in_bits,
-                    )
-                },
-                (Some(seg), Some(displacement), Some(sib)) => unsafe {
-                    xed_mem_gbisd(
-                        seg,
-                        opt_to_reg(mem.base),
-                        sib.index,
-                        sib.scale,
-                        xed_disp(displacement.displacement, displacement.width_in_bits),
-                        mem.width_in_bits,
-                    )
-                },
+            Operand::Mem(mem) => unsafe {
+                xed_mem_gbisd(
+                    opt_to_reg(mem.seg),
+                    opt_to_reg(mem.base),
+                    opt_to_reg(mem.sib.as_ref().map(|sib| sib.index)),
+                    mem.sib.as_ref().map(|sib| sib.scale).unwrap_or(0),
+                    match &mem.displacement {
+                        Some(displacement) => {
+                            xed_disp(displacement.displacement, displacement.width_in_bits)
+                        }
+                        None => xed_disp(0, 0),
+                    },
+                    mem.width_in_bits,
+                )
             },
         }
     }
