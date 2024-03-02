@@ -127,7 +127,9 @@ impl XedState {
         for op_idx in 0..num_of_operands {
             let operand = unsafe { xed_inst_operand(inst, op_idx) };
             let vis = unsafe { xed_operand_operand_visibility(operand) };
-            if vis != XedOperandVisibility::XED_OPVIS_EXPLICIT {
+            if vis != XedOperandVisibility::XED_OPVIS_EXPLICIT
+                && vis != XedOperandVisibility::XED_OPVIS_IMPLICIT
+            {
                 continue;
             }
             let name = unsafe { xed_operand_name(operand) };
