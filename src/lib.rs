@@ -14,7 +14,9 @@ use xed_sys2::{
     xed_decoded_inst_inst, xed_decoded_inst_noperands, xed_decoded_inst_operand_length_bits,
     xed_decoded_inst_t, xed_decoded_inst_valid, xed_decoded_inst_zero_set_mode, xed_disp,
     xed_encode, xed_encoder_instruction_t, xed_encoder_operand_t, xed_encoder_request_t,
-    xed_encoder_request_zero_set_mode, xed_error_enum_t, xed_error_enum_t2str, xed_imm0, xed_inst,
+    xed_encoder_request_zero_set_mode, xed_error_enum_t, xed_error_enum_t2str,
+    xed_get_largest_enclosing_register, xed_get_largest_enclosing_register32,
+    xed_get_register_width_bits, xed_get_register_width_bits64, xed_imm0, xed_inst,
     xed_inst_operand, xed_mem_gbisd, xed_operand_is_register, xed_operand_name,
     xed_operand_operand_visibility, xed_ptr, xed_reg, xed_register_abort_function, xed_relbr,
     xed_simm0, xed_state_get_address_width, xed_state_get_machine_mode,
@@ -283,6 +285,22 @@ impl XedState {
                     mem.width_in_bits,
                 )
             },
+        }
+    }
+    pub fn reg_largest_enclosing(&self, reg: Reg) -> Reg {
+        match self.machine_mode() {
+            xed_sys2::xed_machine_mode_enum_t::XED_MACHINE_MODE_LONG_64 => unsafe {
+                xed_get_largest_enclosing_register(reg)
+            },
+            _ => unsafe { xed_get_largest_enclosing_register32(reg) },
+        }
+    }
+    pub fn reg_width_in_bits(&self, reg: Reg) -> u32 {
+        match self.machine_mode() {
+            xed_sys2::xed_machine_mode_enum_t::XED_MACHINE_MODE_LONG_64 => unsafe {
+                xed_get_register_width_bits64(reg)
+            },
+            _ => unsafe { xed_get_register_width_bits(reg) },
         }
     }
 }
