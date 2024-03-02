@@ -7,8 +7,8 @@ use xed::{
 };
 
 fn main() {
-    // decode_test()
-    encode_test()
+    decode_test()
+    // encode_test()
     // raw_encode_test()
 }
 
@@ -67,6 +67,7 @@ fn encode_test() {
                     displacement: -5,
                     width_in_bits: 32,
                 }),
+                address_width_in_bits: 64,
             }),
         ]
         .into_iter()
