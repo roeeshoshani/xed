@@ -7,7 +7,6 @@ use xed::{
 };
 
 fn main() {
-    // decode_ll_test()
     // decode_test()
     encode_test()
     // raw_encode_test()
@@ -85,19 +84,9 @@ fn encode_test() {
         .unwrap();
     assert!(exit_code.success());
     let decoded = xed_state.decode(&result).unwrap();
-    assert_eq!(decoded, insn);
+    assert_eq!(decoded.insn, insn);
 }
 
-fn decode_ll_test() {
-    let stdin = std::io::stdin();
-    let mut input = String::new();
-    loop {
-        input.clear();
-        stdin.read_line(&mut input).unwrap();
-
-        dump_operands_ll(&input);
-    }
-}
 fn decode_test() {
     let stdin = std::io::stdin();
     let mut input = String::new();
@@ -116,27 +105,10 @@ fn dump_operands(assembly_line: &str) {
         XedAddressWidth::XED_ADDRESS_WIDTH_64b,
         XedAddressWidth::XED_ADDRESS_WIDTH_64b,
     );
-    let insn = xed_state.decode(&bytes).unwrap();
-    println!("{:#?}", insn);
-    let encoded = xed_state.encode(&insn).unwrap();
+    let decoded_insn = xed_state.decode(&bytes).unwrap();
+    println!("{:#?}", decoded_insn);
+    let encoded = xed_state.encode(&decoded_insn.insn).unwrap();
     assert_eq!(encoded.as_slice(), bytes.as_slice());
-}
-
-fn dump_operands_ll(assembly_line: &str) {
-    let bytes = nasm_assemble(&format!("bits 64\n{}", assembly_line));
-    let xed_state = XedState::new(
-        XedMachineMode::XED_MACHINE_MODE_LONG_64,
-        XedAddressWidth::XED_ADDRESS_WIDTH_64b,
-        XedAddressWidth::XED_ADDRESS_WIDTH_64b,
-    );
-    let insn = xed_state.decode_ll(&bytes).unwrap();
-    for i in 0..insn.operands_amount() {
-        let op = insn.operand(i).unwrap();
-        dbg!(op.name());
-        dbg!(op.ty());
-        dbg!(op.x_type());
-        dbg!(op.visibility());
-    }
 }
 
 fn nasm_assemble(assembly_code: &str) -> Vec<u8> {

@@ -110,7 +110,7 @@ impl XedState {
         unsafe { xed_state_get_machine_mode(&self.raw) }
     }
 
-    pub fn decode(&self, buf: &[u8]) -> Result<Insn> {
+    pub fn decode(&self, buf: &[u8]) -> Result<DecodedInsn> {
         let mut decoded = unsafe { core::mem::zeroed::<xed_decoded_inst_t>() };
         unsafe { xed_decoded_inst_zero_set_mode(&mut decoded, &self.raw) }
         check_xed_result(unsafe {
@@ -203,28 +203,16 @@ impl XedState {
                 return Err(Error::UnsupportedOperandNameDuringDecode(name));
             }
         }
-        Ok(Insn {
-            iclass: unsafe { xed_decoded_inst_get_iclass(&decoded) },
-            effective_operand_width_in_bits: unsafe {
-                xed_decoded_inst_get_operand_width(&decoded)
+        Ok(DecodedInsn {
+            insn: Insn {
+                iclass: unsafe { xed_decoded_inst_get_iclass(&decoded) },
+                effective_operand_width_in_bits: unsafe {
+                    xed_decoded_inst_get_operand_width(&decoded)
+                },
+                operands,
             },
-            operands,
+            len: unsafe { xed_decoded_inst_get_length(&decoded) as usize },
         })
-    }
-
-    pub fn decode_ll(&self, buf: &[u8]) -> Result<XedDecodedInsn> {
-        let mut result = XedDecodedInsn {
-            raw: unsafe { core::mem::zeroed() },
-        };
-        unsafe { xed_decoded_inst_zero_set_mode(&mut result.raw, &self.raw) }
-        check_xed_result(unsafe {
-            xed_decode(&mut result.raw, buf.as_ptr().cast(), buf.len() as u32)
-        })?;
-        let is_valid = unsafe { xed_decoded_inst_valid(&result.raw) };
-        if is_valid == 0 {
-            return Err(Error::DecodedInsnIsInvalid);
-        }
-        Ok(result)
     }
 
     pub fn encode(&self, insn: &Insn) -> Result<InsnBytes> {
@@ -328,134 +316,6 @@ fn check_xed_result(result: xed_error_enum_t) -> Result<()> {
     }
 }
 
-#[derive(Clone)]
-pub struct XedDecodedInsn {
-    raw: xed_decoded_inst_t,
-}
-impl XedDecodedInsn {
-    pub fn category(&self) -> XedInsnCategory {
-        unsafe { xed_decoded_inst_get_category(&self.raw) }
-    }
-
-    pub fn iclass(&self) -> XedInsnIClass {
-        unsafe { xed_decoded_inst_get_iclass(&self.raw) }
-    }
-
-    pub fn extension(&self) -> XedInsnExtension {
-        unsafe { xed_decoded_inst_get_extension(&self.raw) }
-    }
-
-    fn raw_inst(&self) -> &xed_inst_t {
-        unsafe { &*xed_decoded_inst_inst(&self.raw) }
-    }
-
-    /// returns the length of this instruction in bytes.
-    pub fn len(&self) -> usize {
-        unsafe { xed_decoded_inst_get_length(&self.raw) as usize }
-    }
-
-    /// returns the amount of operands of the instruction.
-    pub fn operands_amount(&self) -> usize {
-        unsafe { xed_decoded_inst_noperands(&self.raw) as usize }
-    }
-
-    /// returns the modrm byte of the instruction.
-    pub fn modrm(&self) -> u8 {
-        unsafe { xed_decoded_inst_get_modrm(&self.raw) }
-    }
-
-    /// returns the operand with the given index, or an error if the operand index is out of bounds.
-    pub fn operand(&self, operand_index: usize) -> Result<XedDecodedOperand> {
-        if operand_index >= self.operands_amount() {
-            return Err(Error::OperandIndexOutOfBounds {
-                index: operand_index,
-                operands_amount: self.len(),
-            });
-        }
-        let raw_operand_ptr = unsafe { xed_inst_operand(self.raw_inst(), operand_index as u32) };
-        let raw_operand_ptr_non_null =
-            NonNull::new(raw_operand_ptr.cast_mut()).ok_or(Error::OperandIsNull)?;
-        let raw_operand_ref =
-            unsafe { &*raw_operand_ptr_non_null.as_ptr().cast::<xed_operand_t>() };
-        Ok(XedDecodedOperand {
-            raw: raw_operand_ref,
-            decoded_insn: self,
-            operand_index,
-        })
-    }
-
-    pub fn operand_width_in_bits(&self) -> usize {
-        unsafe { xed_decoded_inst_get_operand_width(&self.raw) as usize }
-    }
-}
-
-#[derive(Clone)]
-pub struct XedDecodedOperand<'a> {
-    raw: &'a xed_operand_t,
-    operand_index: usize,
-    decoded_insn: &'a XedDecodedInsn,
-}
-impl<'a> XedDecodedOperand<'a> {
-    pub fn name(&self) -> XedOperandName {
-        unsafe { xed_operand_name(self.raw) }
-    }
-
-    pub fn visibility(&self) -> XedOperandVisibility {
-        unsafe { xed_operand_operand_visibility(self.raw) }
-    }
-
-    pub fn ty(&self) -> XedOperandType {
-        unsafe { xed_operand_type(self.raw) }
-    }
-
-    pub fn x_type(&self) -> XedOperandXType {
-        unsafe { xed_operand_xtype(self.raw) }
-    }
-
-    pub fn width(&self) -> XedOperandWidth {
-        unsafe { xed_operand_width(self.raw) }
-    }
-
-    pub fn is_register(&self) -> bool {
-        unsafe { xed_operand_is_register(self.name()) != 0 }
-    }
-
-    pub fn length_in_bits(&self) -> usize {
-        unsafe {
-            xed_decoded_inst_operand_length_bits(&self.decoded_insn.raw, self.operand_index as u32)
-                as usize
-        }
-    }
-
-    pub fn num_of_elements(&self) -> usize {
-        unsafe {
-            xed_decoded_inst_operand_elements(&self.decoded_insn.raw, self.operand_index as u32)
-                as usize
-        }
-    }
-
-    pub fn element_size_in_bits(&self) -> usize {
-        unsafe {
-            xed_decoded_inst_operand_element_size_bits(
-                &self.decoded_insn.raw,
-                self.operand_index as u32,
-            ) as usize
-        }
-    }
-
-    pub fn element_type(&self) -> XedOperandElementType {
-        unsafe {
-            xed_decoded_inst_operand_element_type(&self.decoded_insn.raw, self.operand_index as u32)
-        }
-    }
-
-    pub fn operand_action(&self) -> XedOperandAction {
-        unsafe {
-            xed_decoded_inst_operand_action(&self.decoded_insn.raw, self.operand_index as u32)
-        }
-    }
-}
-
 pub type Result<T> = core::result::Result<T, Error>;
 
 #[derive(Debug, Error)]
@@ -492,6 +352,12 @@ pub struct RawXedError {
 }
 
 pub type Operands = ArrayVec<Operand, MAX_OPERANDS>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DecodedInsn {
+    pub insn: Insn,
+    pub len: usize,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Insn {
