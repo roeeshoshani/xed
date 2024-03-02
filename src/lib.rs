@@ -77,6 +77,7 @@ pub type XedOperandAction = xed_sys2::xed_operand_action_enum_t;
 pub type XedOperandWidth = xed_sys2::xed_operand_width_enum_t;
 pub type Reg = xed_sys2::xed_reg_enum_t;
 
+#[derive(Clone)]
 pub struct XedState {
     raw: xed_state_t,
 }
@@ -213,6 +214,13 @@ impl XedState {
         })
     }
 
+    pub fn decode_iter<'a>(&self, buf: &'a [u8]) -> DecodeIter<'a> {
+        DecodeIter {
+            bytes: buf,
+            state: self.clone(),
+        }
+    }
+
     pub fn encode(&self, insn: &Insn) -> Result<InsnBytes> {
         let mut raw_operands: ArrayVec<xed_encoder_operand_t, MAX_OPERANDS> = ArrayVec::new();
         for operand in &insn.operands {
@@ -302,6 +310,26 @@ impl XedState {
             },
             _ => unsafe { xed_get_register_width_bits(reg) },
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct DecodeIter<'a> {
+    bytes: &'a [u8],
+    state: XedState,
+}
+impl<'a> Iterator for DecodeIter<'a> {
+    type Item = Result<DecodedInsn>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.bytes.is_empty() {
+            return None;
+        }
+        let result = self.state.decode(self.bytes);
+        if let Ok(decoded_insn) = &result {
+            self.bytes = &self.bytes[decoded_insn.len..];
+        }
+        Some(result)
     }
 }
 
