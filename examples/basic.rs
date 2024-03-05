@@ -51,7 +51,6 @@ fn encode_test() {
     let xed_state = XedState::new(
         XedMachineMode::XED_MACHINE_MODE_LONG_64,
         XedAddressWidth::XED_ADDRESS_WIDTH_64b,
-        XedAddressWidth::XED_ADDRESS_WIDTH_64b,
     );
     let insn = Insn {
         iclass: XedInsnIClass::XED_ICLASS_ADD,
@@ -103,7 +102,6 @@ fn dump_operands(assembly_line: &str) {
     let bytes = nasm_assemble(&format!("bits 64\n{}", assembly_line));
     let xed_state = XedState::new(
         XedMachineMode::XED_MACHINE_MODE_LONG_64,
-        XedAddressWidth::XED_ADDRESS_WIDTH_64b,
         XedAddressWidth::XED_ADDRESS_WIDTH_64b,
     );
     let decoded_insn = xed_state.decode(&bytes).unwrap();

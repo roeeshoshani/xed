@@ -12,17 +12,18 @@ use xed_sys2::{
     xed_decoded_inst_get_operand_width, xed_decoded_inst_get_reg, xed_decoded_inst_get_scale,
     xed_decoded_inst_get_seg_reg, xed_decoded_inst_get_signed_immediate,
     xed_decoded_inst_get_unsigned_immediate, xed_decoded_inst_inst, xed_decoded_inst_noperands,
-    xed_decoded_inst_operand_length_bits, xed_decoded_inst_t, xed_decoded_inst_valid,
+    xed_decoded_inst_operand_length_bits, xed_decoded_inst_operands,
+    xed_decoded_inst_operands_const, xed_decoded_inst_t, xed_decoded_inst_valid,
     xed_decoded_inst_zero_set_mode, xed_disp, xed_encode, xed_encoder_instruction_t,
     xed_encoder_operand_t, xed_encoder_request_t, xed_encoder_request_zero_set_mode,
     xed_error_enum_t, xed_error_enum_t2str, xed_get_largest_enclosing_register,
     xed_get_largest_enclosing_register32, xed_get_register_width_bits,
     xed_get_register_width_bits64, xed_imm0, xed_inst, xed_inst_operand, xed_mem_gbisd,
-    xed_operand_is_register, xed_operand_name, xed_operand_operand_visibility, xed_ptr, xed_reg,
-    xed_register_abort_function, xed_relbr, xed_simm0, xed_state_get_address_width,
-    xed_state_get_machine_mode, xed_state_get_stack_address_width, xed_state_init2,
-    xed_state_set_stack_address_width, xed_state_t, xed_state_zero, xed_tables_init,
-    XED_ENCODE_ORDER_MAX_OPERANDS,
+    xed_operand_is_register, xed_operand_name, xed_operand_operand_visibility,
+    xed_operand_values_has_segment_prefix, xed_operand_values_segment_prefix, xed_ptr, xed_reg,
+    xed_reg_class, xed_register_abort_function, xed_relbr, xed_simm0, xed_state_get_address_width,
+    xed_state_get_machine_mode, xed_state_get_stack_address_width, xed_state_init2, xed_state_t,
+    xed_state_zero, xed_tables_init, XED_ENCODE_ORDER_MAX_OPERANDS,
 };
 
 pub use xed_sys2::XED_MAX_INSTRUCTION_BYTES;
@@ -77,24 +78,20 @@ pub type XedOperandElementType = xed_sys2::xed_operand_element_type_enum_t;
 pub type XedOperandAction = xed_sys2::xed_operand_action_enum_t;
 pub type XedOperandWidth = xed_sys2::xed_operand_width_enum_t;
 pub type Reg = xed_sys2::xed_reg_enum_t;
+pub type RegClass = xed_sys2::xed_reg_class_enum_t;
 
 #[derive(Clone)]
 pub struct XedState {
     raw: xed_state_t,
 }
 impl XedState {
-    pub fn new(
-        machine_mode: XedMachineMode,
-        address_width: XedAddressWidth,
-        stack_address_width: XedAddressWidth,
-    ) -> Self {
+    pub fn new(machine_mode: XedMachineMode, stack_address_width: XedAddressWidth) -> Self {
         let mut result = Self {
             raw: unsafe { core::mem::zeroed() },
         };
         init_xed_if_not_initialized();
         unsafe { xed_state_zero(&mut result.raw) }
-        unsafe { xed_state_init2(&mut result.raw, machine_mode, address_width) };
-        unsafe { xed_state_set_stack_address_width(&mut result.raw, stack_address_width) }
+        unsafe { xed_state_init2(&mut result.raw, machine_mode, stack_address_width) };
         result
     }
 
@@ -122,10 +119,11 @@ impl XedState {
         }
         let mut operands = Operands::new();
         let num_of_operands = unsafe { xed_decoded_inst_noperands(&decoded) };
-        let inst = unsafe { xed_decoded_inst_inst(&decoded) };
+        let raw_inst = unsafe { xed_decoded_inst_inst(&decoded) };
+        let raw_operands = unsafe { xed_decoded_inst_operands_const(&decoded) };
         let mut cur_mem_operands = 0;
         for op_idx in 0..num_of_operands {
-            let operand = unsafe { xed_inst_operand(inst, op_idx) };
+            let operand = unsafe { xed_inst_operand(raw_inst, op_idx) };
             let vis = unsafe { xed_operand_operand_visibility(operand) };
             if vis != XedOperandVisibility::XED_OPVIS_EXPLICIT
                 && vis != XedOperandVisibility::XED_OPVIS_IMPLICIT
@@ -148,7 +146,11 @@ impl XedState {
                     width_in_bits: unsafe {
                         xed_decoded_inst_operand_length_bits(&decoded, op_idx)
                     },
-                    seg: reg_to_opt(unsafe { xed_decoded_inst_get_seg_reg(&decoded, op_idx) }),
+                    seg: if unsafe { xed_operand_values_has_segment_prefix(raw_operands) != 0 } {
+                        reg_to_opt(unsafe { xed_operand_values_segment_prefix(raw_operands) })
+                    } else {
+                        None
+                    },
                     sib: reg_to_opt(unsafe {
                         xed_decoded_inst_get_index_reg(&decoded, cur_mem_operands)
                     })
@@ -224,6 +226,7 @@ impl XedState {
         DecodeIter {
             bytes: buf,
             state: self.clone(),
+            index: 0,
         }
     }
 
@@ -315,6 +318,12 @@ impl XedState {
             _ => unsafe { xed_get_largest_enclosing_register32(reg) },
         }
     }
+    pub fn reg_start_bit_index_in_largest_enclosing(&self, reg: Reg) -> u32 {
+        match reg {
+            Reg::XED_REG_AH | Reg::XED_REG_BH | Reg::XED_REG_CH | Reg::XED_REG_DH => 8,
+            _ => 0,
+        }
+    }
     pub fn reg_width_in_bits(&self, reg: Reg) -> u32 {
         match self.machine_mode() {
             xed_sys2::xed_machine_mode_enum_t::XED_MACHINE_MODE_LONG_64 => unsafe {
@@ -325,23 +334,32 @@ impl XedState {
     }
 }
 
+pub fn reg_class(reg: Reg) -> RegClass {
+    unsafe { xed_reg_class(reg) }
+}
+
 #[derive(Clone)]
 pub struct DecodeIter<'a> {
+    index: usize,
     bytes: &'a [u8],
     state: XedState,
 }
 impl<'a> Iterator for DecodeIter<'a> {
-    type Item = Result<DecodedInsn>;
+    type Item = Result<DecodedIterInsn>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.bytes.is_empty() {
+        if self.index >= self.bytes.len() {
             return None;
         }
-        let result = self.state.decode(self.bytes);
+        let result = self.state.decode(&self.bytes[self.index..]);
+        let insn_index = self.index;
         if let Ok(decoded_insn) = &result {
-            self.bytes = &self.bytes[decoded_insn.len..];
+            self.index += decoded_insn.len;
         }
-        Some(result)
+        Some(result.map(|decoded_insn| DecodedIterInsn {
+            decoded_insn,
+            index_in_buffer: insn_index,
+        }))
     }
 }
 
@@ -406,6 +424,14 @@ pub struct RawXedError {
 }
 
 pub type Operands = ArrayVec<Operand, MAX_OPERANDS>;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DecodedIterInsn {
+    /// the actual decoded instruction.
+    pub decoded_insn: DecodedInsn,
+    /// the index of the first byte of this instruction in the decoded buffer.
+    pub index_in_buffer: usize,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DecodedInsn {
