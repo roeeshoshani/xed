@@ -5,23 +5,23 @@ use thiserror_no_std::Error;
 use xed_sys2::{
     xed_absbr, xed_addr, xed_convert_to_encoder_request, xed_decode, xed_decoded_inst_get_base_reg,
     xed_decoded_inst_get_branch_displacement, xed_decoded_inst_get_branch_displacement_width_bits,
-    xed_decoded_inst_get_iclass, xed_decoded_inst_get_immediate_is_signed,
-    xed_decoded_inst_get_immediate_width_bits, xed_decoded_inst_get_index_reg,
-    xed_decoded_inst_get_length, xed_decoded_inst_get_memop_address_width,
-    xed_decoded_inst_get_memory_displacement, xed_decoded_inst_get_memory_displacement_width_bits,
-    xed_decoded_inst_get_operand_width, xed_decoded_inst_get_reg, xed_decoded_inst_get_scale,
-    xed_decoded_inst_get_seg_reg, xed_decoded_inst_get_signed_immediate,
+    xed_decoded_inst_get_category, xed_decoded_inst_get_iclass,
+    xed_decoded_inst_get_immediate_is_signed, xed_decoded_inst_get_immediate_width_bits,
+    xed_decoded_inst_get_index_reg, xed_decoded_inst_get_length,
+    xed_decoded_inst_get_memop_address_width, xed_decoded_inst_get_memory_displacement,
+    xed_decoded_inst_get_memory_displacement_width_bits, xed_decoded_inst_get_operand_width,
+    xed_decoded_inst_get_reg, xed_decoded_inst_get_scale, xed_decoded_inst_get_signed_immediate,
     xed_decoded_inst_get_unsigned_immediate, xed_decoded_inst_inst, xed_decoded_inst_noperands,
-    xed_decoded_inst_operand_length_bits, xed_decoded_inst_operands,
-    xed_decoded_inst_operands_const, xed_decoded_inst_t, xed_decoded_inst_valid,
-    xed_decoded_inst_zero_set_mode, xed_disp, xed_encode, xed_encoder_instruction_t,
-    xed_encoder_operand_t, xed_encoder_request_t, xed_encoder_request_zero_set_mode,
-    xed_error_enum_t, xed_error_enum_t2str, xed_get_largest_enclosing_register,
-    xed_get_largest_enclosing_register32, xed_get_register_width_bits,
-    xed_get_register_width_bits64, xed_imm0, xed_inst, xed_inst_operand, xed_mem_gbisd,
-    xed_operand_is_register, xed_operand_name, xed_operand_operand_visibility,
-    xed_operand_values_has_segment_prefix, xed_operand_values_segment_prefix, xed_ptr, xed_reg,
-    xed_reg_class, xed_register_abort_function, xed_relbr, xed_simm0, xed_state_get_address_width,
+    xed_decoded_inst_operand_length_bits, xed_decoded_inst_operands_const, xed_decoded_inst_t,
+    xed_decoded_inst_valid, xed_decoded_inst_zero_set_mode, xed_disp, xed_encode,
+    xed_encoder_instruction_t, xed_encoder_operand_t, xed_encoder_request_t,
+    xed_encoder_request_zero_set_mode, xed_error_enum_t, xed_error_enum_t2str,
+    xed_get_largest_enclosing_register, xed_get_largest_enclosing_register32,
+    xed_get_register_width_bits, xed_get_register_width_bits64, xed_imm0, xed_inst,
+    xed_inst_operand, xed_mem_gbisd, xed_operand_is_register, xed_operand_name,
+    xed_operand_operand_visibility, xed_operand_values_has_segment_prefix,
+    xed_operand_values_segment_prefix, xed_ptr, xed_reg, xed_reg_class,
+    xed_register_abort_function, xed_relbr, xed_simm0, xed_state_get_address_width,
     xed_state_get_machine_mode, xed_state_get_stack_address_width, xed_state_init2, xed_state_t,
     xed_state_zero, xed_tables_init, XED_ENCODE_ORDER_MAX_OPERANDS,
 };
@@ -139,6 +139,8 @@ impl XedState {
                 || name == XedOperandName::XED_OPERAND_MEM1
                 || name == XedOperandName::XED_OPERAND_AGEN
             {
+                let displacement =
+                    unsafe { xed_decoded_inst_get_memory_displacement(&decoded, cur_mem_operands) };
                 operands.push(Operand::Mem(MemOperand {
                     base: reg_to_opt(unsafe {
                         xed_decoded_inst_get_base_reg(&decoded, cur_mem_operands)
@@ -158,17 +160,19 @@ impl XedState {
                         scale: unsafe { xed_decoded_inst_get_scale(&decoded, cur_mem_operands) },
                         index: index_reg,
                     }),
-                    displacement: Some(MemOperandDisplacement {
-                        displacement: unsafe {
-                            xed_decoded_inst_get_memory_displacement(&decoded, cur_mem_operands)
-                        },
-                        width_in_bits: unsafe {
-                            xed_decoded_inst_get_memory_displacement_width_bits(
-                                &decoded,
-                                cur_mem_operands,
-                            )
-                        },
-                    }),
+                    displacement: if displacement != 0 {
+                        Some(MemOperandDisplacement {
+                            displacement,
+                            width_in_bits: unsafe {
+                                xed_decoded_inst_get_memory_displacement_width_bits(
+                                    &decoded,
+                                    cur_mem_operands,
+                                )
+                            },
+                        })
+                    } else {
+                        None
+                    },
                     address_width_in_bits: unsafe {
                         xed_decoded_inst_get_memop_address_width(&decoded, cur_mem_operands)
                     },
@@ -219,6 +223,7 @@ impl XedState {
                 operands,
             },
             len: unsafe { xed_decoded_inst_get_length(&decoded) as usize },
+            category: unsafe { xed_decoded_inst_get_category(&decoded) },
         })
     }
 
@@ -437,6 +442,7 @@ pub struct DecodedIterInsn {
 pub struct DecodedInsn {
     pub insn: Insn,
     pub len: usize,
+    pub category: XedInsnCategory,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -444,6 +450,13 @@ pub struct Insn {
     pub iclass: XedInsnIClass,
     pub effective_operand_width_in_bits: u32,
     pub operands: Operands,
+}
+impl Insn {
+    pub const NOP: Self = Insn {
+        iclass: XedInsnIClass::XED_ICLASS_NOP,
+        effective_operand_width_in_bits: 0,
+        operands: Operands::new_const(),
+    };
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
