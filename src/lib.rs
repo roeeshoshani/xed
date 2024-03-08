@@ -278,6 +278,10 @@ impl XedState {
             )
         })?;
         unsafe { insn_bytes.set_len(encoded_len as usize) };
+        if insn.iclass == XedInsnIClass::XED_ICLASS_XCHG {
+            // xed adds an unneccessary lock prefix to XCHG instructions
+            insn_bytes.remove(0);
+        }
         Ok(insn_bytes)
     }
 
