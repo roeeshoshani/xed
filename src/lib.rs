@@ -1,6 +1,6 @@
 use core::{ffi::CStr, ptr::NonNull, sync::atomic::AtomicBool};
 
-use arrayvec::ArrayVec;
+use arrayvec::{ArrayString, ArrayVec};
 use thiserror_no_std::Error;
 use xed_sys2::{
     xed_absbr, xed_addr, xed_convert_to_encoder_request, xed_decode, xed_decoded_inst_get_base_reg,
@@ -15,7 +15,7 @@ use xed_sys2::{
     xed_decoded_inst_operand_length_bits, xed_decoded_inst_operands_const, xed_decoded_inst_t,
     xed_decoded_inst_valid, xed_decoded_inst_zero_set_mode, xed_disp, xed_encode,
     xed_encoder_instruction_t, xed_encoder_operand_t, xed_encoder_request_t,
-    xed_encoder_request_zero_set_mode, xed_error_enum_t, xed_error_enum_t2str,
+    xed_encoder_request_zero_set_mode, xed_error_enum_t, xed_error_enum_t2str, xed_format_context,
     xed_get_largest_enclosing_register, xed_get_largest_enclosing_register32,
     xed_get_register_width_bits, xed_get_register_width_bits64, xed_imm0, xed_inst,
     xed_inst_operand, xed_mem_gbisd, xed_operand_is_register, xed_operand_name,
@@ -32,6 +32,7 @@ static XED_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
 pub const MAX_OPERANDS: usize = XED_ENCODE_ORDER_MAX_OPERANDS as usize;
 pub const MAX_INSN_BYTES: usize = XED_MAX_INSTRUCTION_BYTES as usize;
+pub const MAX_DISASSEMBLED_INSN_LEN: usize = 256;
 
 fn init_xed_if_not_initialized() {
     unsafe {
@@ -107,7 +108,7 @@ impl XedState {
         unsafe { xed_state_get_machine_mode(&self.raw) }
     }
 
-    pub fn decode(&self, buf: &[u8]) -> Result<DecodedInsn> {
+    fn raw_decode(&self, buf: &[u8]) -> Result<xed_decoded_inst_t> {
         let mut decoded = unsafe { core::mem::zeroed::<xed_decoded_inst_t>() };
         unsafe { xed_decoded_inst_zero_set_mode(&mut decoded, &self.raw) }
         check_xed_result(unsafe {
@@ -117,6 +118,11 @@ impl XedState {
         if is_valid == 0 {
             return Err(Error::DecodedInsnIsInvalid);
         }
+        Ok(decoded)
+    }
+
+    pub fn decode(&self, buf: &[u8]) -> Result<DecodedInsn> {
+        let decoded = self.raw_decode(buf)?;
         let mut operands = Operands::new();
         let num_of_operands = unsafe { xed_decoded_inst_noperands(&decoded) };
         let raw_inst = unsafe { xed_decoded_inst_inst(&decoded) };
@@ -341,7 +347,31 @@ impl XedState {
             _ => unsafe { xed_get_register_width_bits(reg) },
         }
     }
+    pub fn disassamble(&self, insn: &Insn, insn_runtime_address: u64) -> Result<DisassembledInsn> {
+        let encoded = self.encode(insn)?;
+        let raw_decoded = self.raw_decode(&encoded)?;
+        let mut result = DisassembledInsn::zero_filled();
+        let format_res = unsafe {
+            xed_format_context(
+                xed_sys2::xed_syntax_enum_t::XED_SYNTAX_INTEL,
+                &raw_decoded,
+                result.as_bytes_mut().as_mut_ptr().cast(),
+                result.capacity() as i32,
+                insn_runtime_address,
+                core::ptr::null_mut(),
+                None,
+            )
+        };
+        if format_res == 0 {
+            return Err(Error::FailedToDisassembleInsn);
+        }
+        let nonzero_bytes_amount = result.bytes().take_while(|byte| *byte != 0).count();
+        unsafe { result.set_len(nonzero_bytes_amount) };
+        Ok(result)
+    }
 }
+
+pub type DisassembledInsn = ArrayString<MAX_DISASSEMBLED_INSN_LEN>;
 
 pub fn reg_class(reg: Reg) -> RegClass {
     unsafe { xed_reg_class(reg) }
@@ -423,6 +453,12 @@ pub enum Error {
 
     #[error("unsupported raw operand name {0:?} while decoding an instruction")]
     UnsupportedOperandNameDuringDecode(XedOperandName),
+
+    #[error("failed to disassemble instruction")]
+    FailedToDisassembleInsn,
+
+    #[error("the disassembled instruction returned by xed is not null terminated")]
+    DisassembledInsnNotNulTerminated,
 }
 
 #[derive(Debug, Error)]
@@ -495,6 +531,14 @@ pub struct ImmOperand {
 pub enum ImmValue {
     Signed(i32),
     Unsigned(u64),
+}
+impl ImmValue {
+    pub fn as_i64(&self) -> i64 {
+        match self {
+            ImmValue::Signed(signed_value) => *signed_value as i64,
+            ImmValue::Unsigned(unsigned_value) => *unsigned_value as i64,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
