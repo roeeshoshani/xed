@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "std"), no_std)]
+
 use core::{ffi::CStr, ptr::NonNull, sync::atomic::AtomicBool};
 
 use arrayvec::{ArrayString, ArrayVec};
@@ -36,7 +38,7 @@ pub const MAX_DISASSEMBLED_INSN_LEN: usize = 256;
 
 fn init_xed_if_not_initialized() {
     unsafe {
-        if !XED_INITIALIZED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        if !XED_INITIALIZED.swap(true, core::sync::atomic::Ordering::Relaxed) {
             xed_tables_init();
             xed_register_abort_function(Some(xed_abort), core::ptr::null_mut())
         }

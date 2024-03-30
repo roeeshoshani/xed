@@ -1,9 +1,9 @@
+#![allow(dead_code)]
 use std::process::Command;
 
-use arrayvec::ArrayVec;
 use xed::{
-    ImmOperand, ImmValue, Insn, MemOperand, MemOperandDisplacement, MemOperandSib, Operand, Reg,
-    XedAddressWidth, XedInsnIClass, XedMachineMode, XedState, MAX_INSN_BYTES,
+    Insn, MemOperand, MemOperandDisplacement, Operand, Reg, XedAddressWidth, XedInsnIClass,
+    XedMachineMode, XedState, MAX_INSN_BYTES,
 };
 
 fn main() {
