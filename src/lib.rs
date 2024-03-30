@@ -5,25 +5,25 @@ use core::{ffi::CStr, ptr::NonNull, sync::atomic::AtomicBool};
 use arrayvec::{ArrayString, ArrayVec};
 use thiserror_no_std::Error;
 use xed_sys2::{
-    xed_absbr, xed_addr, xed_convert_to_encoder_request, xed_decode, xed_decoded_inst_get_base_reg,
-    xed_decoded_inst_get_branch_displacement, xed_decoded_inst_get_branch_displacement_width_bits,
-    xed_decoded_inst_get_category, xed_decoded_inst_get_iclass,
-    xed_decoded_inst_get_immediate_is_signed, xed_decoded_inst_get_immediate_width_bits,
-    xed_decoded_inst_get_index_reg, xed_decoded_inst_get_length,
-    xed_decoded_inst_get_memop_address_width, xed_decoded_inst_get_memory_displacement,
-    xed_decoded_inst_get_memory_displacement_width_bits, xed_decoded_inst_get_operand_width,
-    xed_decoded_inst_get_reg, xed_decoded_inst_get_scale, xed_decoded_inst_get_signed_immediate,
-    xed_decoded_inst_get_unsigned_immediate, xed_decoded_inst_inst, xed_decoded_inst_noperands,
-    xed_decoded_inst_operand_length_bits, xed_decoded_inst_operands_const, xed_decoded_inst_t,
-    xed_decoded_inst_valid, xed_decoded_inst_zero_set_mode, xed_disp, xed_encode,
-    xed_encoder_instruction_t, xed_encoder_operand_t, xed_encoder_request_t,
-    xed_encoder_request_zero_set_mode, xed_error_enum_t, xed_error_enum_t2str, xed_format_context,
-    xed_get_largest_enclosing_register, xed_get_largest_enclosing_register32,
-    xed_get_register_width_bits, xed_get_register_width_bits64, xed_imm0, xed_inst,
-    xed_inst_operand, xed_mem_gbisd, xed_operand_is_register, xed_operand_name,
-    xed_operand_operand_visibility, xed_operand_values_has_segment_prefix,
-    xed_operand_values_segment_prefix, xed_ptr, xed_reg, xed_reg_class,
-    xed_register_abort_function, xed_relbr, xed_simm0, xed_state_get_address_width,
+    str2xed_iclass_enum_t, str2xed_reg_enum_t, xed_absbr, xed_addr, xed_convert_to_encoder_request,
+    xed_decode, xed_decoded_inst_get_base_reg, xed_decoded_inst_get_branch_displacement,
+    xed_decoded_inst_get_branch_displacement_width_bits, xed_decoded_inst_get_category,
+    xed_decoded_inst_get_iclass, xed_decoded_inst_get_immediate_is_signed,
+    xed_decoded_inst_get_immediate_width_bits, xed_decoded_inst_get_index_reg,
+    xed_decoded_inst_get_length, xed_decoded_inst_get_memop_address_width,
+    xed_decoded_inst_get_memory_displacement, xed_decoded_inst_get_memory_displacement_width_bits,
+    xed_decoded_inst_get_operand_width, xed_decoded_inst_get_reg, xed_decoded_inst_get_scale,
+    xed_decoded_inst_get_signed_immediate, xed_decoded_inst_get_unsigned_immediate,
+    xed_decoded_inst_inst, xed_decoded_inst_noperands, xed_decoded_inst_operand_length_bits,
+    xed_decoded_inst_operands_const, xed_decoded_inst_t, xed_decoded_inst_valid,
+    xed_decoded_inst_zero_set_mode, xed_disp, xed_encode, xed_encoder_instruction_t,
+    xed_encoder_operand_t, xed_encoder_request_t, xed_encoder_request_zero_set_mode,
+    xed_error_enum_t, xed_error_enum_t2str, xed_format_context, xed_get_largest_enclosing_register,
+    xed_get_largest_enclosing_register32, xed_get_register_width_bits,
+    xed_get_register_width_bits64, xed_imm0, xed_inst, xed_inst_operand, xed_mem_gbisd,
+    xed_operand_is_register, xed_operand_name, xed_operand_operand_visibility,
+    xed_operand_values_has_segment_prefix, xed_operand_values_segment_prefix, xed_ptr, xed_reg,
+    xed_reg_class, xed_register_abort_function, xed_relbr, xed_simm0, xed_state_get_address_width,
     xed_state_get_machine_mode, xed_state_get_stack_address_width, xed_state_init2, xed_state_t,
     xed_state_zero, xed_tables_init, XED_ENCODE_ORDER_MAX_OPERANDS,
 };
@@ -378,6 +378,30 @@ pub type DisassembledInsn = ArrayString<MAX_DISASSEMBLED_INSN_LEN>;
 pub fn reg_class(reg: Reg) -> RegClass {
     unsafe { xed_reg_class(reg) }
 }
+
+fn str_to_fixed_size_cstr<const SIZE: usize>(str: &str) -> [u8; SIZE] {
+    let mut cstr_buf = [0u8; SIZE];
+    assert!(str.len() + 1 < SIZE);
+    cstr_buf[..str.as_bytes().len()].copy_from_slice(str.as_bytes());
+    cstr_buf[str.as_bytes().len()] = 0;
+    cstr_buf
+}
+
+macro_rules! define_xed_str_to_x_fn {
+    {$fn_name: ident, $type: ty, $invalid_variant: expr, $xed_fn: ident, $max_size: expr} => {
+        pub fn $fn_name(str: &str) -> Option<$type> {
+            let cstr = str_to_fixed_size_cstr::<$max_size>(str);
+            let res = unsafe { $xed_fn(cstr.as_ptr().cast()) };
+            if res == $invalid_variant {
+                None
+            } else {
+                Some(res)
+            }
+        }
+    };
+}
+define_xed_str_to_x_fn! {str_to_iclass, XedInsnIClass, XedInsnIClass::XED_ICLASS_INVALID, str2xed_iclass_enum_t, 128}
+define_xed_str_to_x_fn! {str_to_reg, Reg, Reg::XED_REG_INVALID, str2xed_reg_enum_t, 128}
 
 #[derive(Clone)]
 pub struct DecodeIter<'a> {
