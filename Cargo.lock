@@ -444,7 +444,9 @@ dependencies = [
 
 [[package]]
 name = "xed-sys2"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "983af6147bf4c31c9e3d1f59231905cccd391d1fed3191c32a6d3c9bc2723635"
 dependencies = [
  "bindgen",
  "cc",

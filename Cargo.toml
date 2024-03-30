@@ -2,13 +2,19 @@
 name = "xed"
 version = "0.1.0"
 edition = "2021"
+authors = ["Roee Shoshani"]
+description = "high level bindings for xed"
+repository = "https://github.com/roeeshoshani/xed"
+license = "MIT"
+keywords = ["xed", "intel", "x86", "x86_64"]
+categories = ["encoding", "hardware-support", "parsing"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 arrayvec = "0.7.4"
 thiserror-no-std = "2.0.2"
-xed-sys2 = { path = "../xed-sys2" }
+xed-sys2 = "0.1.1"
 
 [features]
 std = ["thiserror-no-std/std"]
